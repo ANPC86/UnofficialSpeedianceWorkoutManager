@@ -412,6 +412,16 @@ class SpeedianceClient:
         url = f"{self.base_url}/api/app/customTrainingTemplate?ids={template_id}"
         self._request('DELETE', url, headers=self._get_headers())
 
+    def delete_workout_checked(self, template_id):
+        """Same DELETE as delete_workout(), but returns the parsed API envelope
+        so callers (workout_ops.py) can verify the response code before
+        fetch-back verification."""
+        url = f"{self.base_url}/api/app/customTrainingTemplate?ids={template_id}"
+        resp = self._request('DELETE', url, headers=self._get_headers())
+        if resp.status_code == 401:
+            raise Exception("Unauthorized")
+        return resp.json()
+
     def get_exercise_detail(self, exercise_id):
         url = f"{self.base_url}/api/app/actionLibraryGroup/{exercise_id}?isDisplay=1"
         resp = self._request('GET', url, headers=self._get_headers())
@@ -674,6 +684,19 @@ class SpeedianceClient:
         if template_id:
             payload['id'] = int(template_id)
 
+        url = f"{self.base_url}/api/app/v2/customTrainingTemplate"
+        resp = self._request('POST', url, headers=self._get_headers(), json=payload)
+        if resp.status_code == 401:
+            raise Exception("Unauthorized")
+        return resp.json()
+
+    def save_workout_payload(self, payload):
+        """Low-level template save/update: POSTs a prebuilt customTrainingTemplate payload.
+
+        Same endpoint as save_workout(), but the caller supplies the full payload
+        (including 'id' for updates). Used by workout_update.py for surgical,
+        field-preserving updates where the per-set CSVs must be echoed verbatim.
+        """
         url = f"{self.base_url}/api/app/v2/customTrainingTemplate"
         resp = self._request('POST', url, headers=self._get_headers(), json=payload)
         if resp.status_code == 401:

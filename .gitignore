@@ -11,3 +11,13 @@ templates/api_docs.html
 library_cache*.json
 
 .claude/
+evidence/speediance/raw/
+evidence/speediance/sanitized/
+.speediance.secrets.local
+*.secrets.local
+.env.local
+
+runtime/
+
+# Operator evidence captures (personal workout/API data): local-only, never committed.
+evidence/
