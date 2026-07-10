@@ -24,6 +24,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from api_client import SpeedianceClient
+from mcp_api_client import SpeedianceMcpClient
 
 
 EXPORT_SCHEMA = "speediance-custom-workout-export/v1"
@@ -554,8 +555,19 @@ def validate_manifest(snapshot_path: Path, manifest: Mapping[str, Any] | None = 
 
 
 def _credentials_present(client: Any) -> bool:
+    if hasattr(client, "credentials_available"):
+        return bool(client.credentials_available())
     credentials = getattr(client, "credentials", {}) or {}
     return bool(credentials.get("user_id") and credentials.get("token"))
+
+
+def _build_export_client() -> Any:
+    """Prefer the read-only MCP adapter when both SPEEDIANCE_MCP_URL and
+    SPEEDIANCE_MCP_BEARER_TOKEN are set; otherwise fall back to the direct
+    API client (which keeps the repo-wide env-credential convention)."""
+    if SpeedianceMcpClient.configured_from_env():
+        return SpeedianceMcpClient()
+    return _make_client()
 
 
 def _make_client() -> SpeedianceClient:
@@ -571,7 +583,7 @@ def _make_client() -> SpeedianceClient:
 
 
 def _cli_export_all(args: argparse.Namespace) -> int:
-    client = _make_client()
+    client = _build_export_client()
     if not _credentials_present(client):
         print("credentials unavailable; no remote request attempted")
         return 2
@@ -592,7 +604,7 @@ def _cli_export_all(args: argparse.Namespace) -> int:
 
 
 def _cli_export_single(args: argparse.Namespace) -> int:
-    client = _make_client()
+    client = _build_export_client()
     if not _credentials_present(client):
         print("credentials unavailable; no remote request attempted")
         return 2

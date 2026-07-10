@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from custom_workout_export import (
     CustomWorkoutExporter,
     ExportError,
+    _build_export_client,
     _load_manifest,
     build_workout_definition,
     canonical_sha256,
@@ -23,6 +26,7 @@ from custom_workout_export import (
     parse_title_version,
     validate_manifest,
 )
+from mcp_api_client import SpeedianceMcpClient
 
 
 def summary(workout_id="101", code="CODE101", title="I-BK-v9"):
@@ -249,6 +253,92 @@ class TestPrimaryTreeCompatibility(unittest.TestCase):
                 client = cwe._make_client()
         self.assertEqual(client.credentials["user_id"], "env-user")
         self.assertEqual(client.credentials["token"], "env-token")
+
+
+def json_dumps(value):
+    return json.dumps(value, separators=(",", ":"))
+
+
+class FakeResponse:
+    def __init__(self, status_code, text="", headers=None):
+        self.status_code = status_code
+        self.text = text
+        self.headers = headers or {}
+
+
+class FakeMcpSession:
+    def __init__(self):
+        self.posts = []
+
+    def post(self, url, headers, payload, timeout):
+        self.posts.append({"url": url, "headers": headers, "json": payload, "timeout": timeout})
+        method = payload.get("method")
+        if method == "initialize":
+            return FakeResponse(
+                200,
+                json_dumps({"jsonrpc": "2.0", "id": payload.get("id"), "result": {"serverInfo": {"name": "speediance-mcp"}}}),
+                {"mcp-session-id": "session-1"},
+            )
+        if method == "notifications/initialized":
+            return FakeResponse(202)
+        if method == "tools/call":
+            name = payload["params"]["name"]
+            if name == "speediance_list_custom_templates":
+                body = {"status": "ok", "templates": [summary()]}
+            else:
+                body = {"status": "ok", "detail": detail()}
+            return FakeResponse(
+                200,
+                "event: message\ndata: " + json_dumps({
+                    "jsonrpc": "2.0",
+                    "id": payload.get("id"),
+                    "result": {"content": [{"type": "text", "text": json_dumps(body)}]},
+                }) + "\n\n",
+            )
+        raise AssertionError(method)
+
+
+FAKE_MCP_URL = "https://mcp.invalid.example/mcp"
+
+
+class TestMcpAdapter(unittest.TestCase):
+    def test_cli_selects_mcp_client_only_when_url_and_bearer_are_present(self):
+        env = {"SPEEDIANCE_MCP_URL": FAKE_MCP_URL, "SPEEDIANCE_MCP_BEARER_TOKEN": "fake-token"}
+        with patch.dict(os.environ, env, clear=False):
+            self.assertIsInstance(_build_export_client(), SpeedianceMcpClient)
+
+    def test_cli_falls_back_to_direct_client_without_mcp_env(self):
+        import custom_workout_export as cwe
+        fake = FakeClient([], {})
+        env = dict(os.environ)
+        env.pop("SPEEDIANCE_MCP_URL", None)
+        env.pop("SPEEDIANCE_MCP_BEARER_TOKEN", None)
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(cwe, "SpeedianceClient", return_value=fake):
+                self.assertIs(_build_export_client(), fake)
+
+    def test_mcp_adapter_lists_and_fetches_complete_detail_once(self):
+        client = SpeedianceMcpClient(FAKE_MCP_URL, "fake-token")
+        fake_session = FakeMcpSession()
+
+        def fake_post(payload):
+            response = fake_session.post(client.url, client._headers(), payload, client.timeout)
+            if response.headers.get("mcp-session-id"):
+                client.session_id = response.headers["mcp-session-id"]
+            return client._parse_response(response.status_code, response.text, response.headers)
+
+        client._post = fake_post
+
+        self.assertEqual(client.get_user_workouts()[0]["code"], "CODE101")
+        self.assertEqual(client.get_workout_detail("CODE101")["actionLibraryList"][0]["groupId"], 321)
+
+        tool_calls = [post["json"] for post in fake_session.posts if post["json"].get("method") == "tools/call"]
+        self.assertEqual([call["params"]["name"] for call in tool_calls], [
+            "speediance_list_custom_templates",
+            "speediance_get_custom_template_detail",
+        ])
+        self.assertEqual(tool_calls[1]["params"]["arguments"], {"code": "CODE101", "include_detail": True})
+        self.assertEqual(len([call for call in tool_calls if call["params"]["name"] == "speediance_get_custom_template_detail"]), 1)
 
 
 if __name__ == "__main__":

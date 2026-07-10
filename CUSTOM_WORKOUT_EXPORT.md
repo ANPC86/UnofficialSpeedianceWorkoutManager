@@ -51,6 +51,20 @@ handling is strict `zoneinfo` + `tzdata` (canonical `America/Edmonton`); an
 unresolvable timezone fails explicitly rather than silently falling back to
 system-local time or UTC.
 
+### MCP-backed transport (preferred when configured)
+
+When both `SPEEDIANCE_MCP_URL` and `SPEEDIANCE_MCP_BEARER_TOKEN` are present
+in the process environment, the exporter uses the read-only Speediance MCP
+adapter (`mcp_api_client.py`) instead of the direct API client. The adapter
+speaks MCP over Streamable HTTP, authenticates with the inbound MCP bearer
+token only (no Speediance account credentials are needed on the export host),
+lists templates via `speediance_list_custom_templates`, and fetches each
+custom-workout detail exactly once via
+`speediance_get_custom_template_detail(include_detail=true)`. It exposes no
+write operations. Without those two environment variables, the exporter falls
+back to the direct API client and its existing credential conventions. Neither
+the endpoint URL nor the bearer token is hardcoded or logged.
+
 ```powershell
 python -m custom_workout_export export-all-custom-workouts `
   --output-root runtime/custom-workout-snapshots `
