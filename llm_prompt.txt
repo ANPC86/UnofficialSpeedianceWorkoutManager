@@ -468,7 +468,7 @@ You must output the workout plan in the following strict JSON format. Do not inc
         {
           "reps": 12,
           "weight": 10, // Weight in KG (or RM level 1-20 if using a preset, but prefer KG for custom)
-          "mode": 1, // 1: Standard, 2: Eccentric, 3: Isokinetic, 4: Constant, 5: Spotter
+          "mode": 1, // 1: Standard, 2: Chains, 3: Eccentric
           "rest": 60 // Rest time in seconds
         }
       ]
@@ -478,10 +478,11 @@ You must output the workout plan in the following strict JSON format. Do not inc
 
 MODES:
 1: Standard (Normal resistance)
-2: Eccentric (More resistance on the way down)
-3: Isokinetic (Constant speed)
-4: Constant (Constant tension)
-5: Spotter (Assistance when stuck)
+2: Chains (Resistance increases at the top)
+3: Eccentric (More resistance on the way down)
+
+Only modes 1-3 are exposed by the device for custom workouts; do not emit any
+other value. `mode` maps directly to the API's `sportMode` field.
 
 TASK:
 Create a workout plan for: [USER REQUEST HERE]
